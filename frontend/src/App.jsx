@@ -1,8 +1,15 @@
+
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 
-const API_URL = "http://localhost:5000/api";
+// Local development:
+// http://localhost:5000/api
+//
+// For Render deployment, create frontend/.env.production with:
+// VITE_API_URL=https://YOUR-BACKEND-URL.onrender.com/api
+
+const API_URL = "https://simplepayrollapp.onrender.com/api";
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(
@@ -15,11 +22,26 @@ function App() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loading, setLoading] = useState(false);
+ const [showLoginPassword, setShowLoginPassword] = useState(false);
+const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+const [showResetPassword, setShowResetPassword] = useState(false);
+  const [authPage, setAuthPage] = useState("login");
+
+const [registerName, setRegisterName] = useState("");
+const [registerEmail, setRegisterEmail] = useState("");
+const [registerPassword, setRegisterPassword] = useState("");
+const [registerError, setRegisterError] = useState("");
+
+const [forgotEmail, setForgotEmail] = useState("");
+const [newPassword, setNewPassword] = useState("");
+const [forgotError, setForgotError] = useState("");
 
   const [employees, setEmployees] = useState([]);
   const [salaries, setSalaries] = useState([]);
   const [deductions, setDeductions] = useState([]);
   const [payrolls, setPayrolls] = useState([]);
+  const [users, setUsers] = useState([]);
+ 
 
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [editingSalary, setEditingSalary] = useState(null);
@@ -52,13 +74,82 @@ function App() {
     payPeriod: "September 2026"
   });
 
-  const token = localStorage.getItem("token");
+  const fetchUsers = async () => {
+  try {
+    const response = await axios.get(
+      `${API_URL}/users`,
+      getAuthConfig()
+    );
 
-  const authConfig = {
-    headers: {
-      Authorization: `Bearer ${token}`
+    console.log("Users response:", response.data);
+
+    const userList =
+      response.data?.data ||
+      response.data?.users ||
+      [];
+
+    setUsers(userList);
+
+  } catch (error) {
+    console.error(
+      "Users error:",
+      error.response?.data || error.message
+    );
+
+    setUsers([]);
+  }
+};
+
+
+const changeUserRole = async (userId, role) => {
+  const confirmed = window.confirm(
+    `Are you sure you want to make this user ${role}?`
+  );
+
+  if (!confirmed) return;
+
+  try {
+    await axios.put(
+      `${API_URL}/admin/users/${userId}/role`,
+      { role },
+      getAuthConfig()
+    );
+
+    await fetchUsers();
+
+    alert(`User is now ${role}`);
+
+  } catch (error) {
+    alert(
+      error.response?.data?.message ||
+      "Unable to update user role"
+    );
+  }
+};
+
+  // Always get the latest token from localStorage.
+  const getToken = () => localStorage.getItem("token");
+
+  const getCurrentUser = () => {
+    try {
+        return JSON.parse(
+            localStorage.getItem("user")
+        );
+    } catch {
+        return null;
     }
-  };
+};
+
+const [currentUser, setCurrentUser] = useState(
+  getCurrentUser()
+);
+
+const isAdmin = currentUser?.role === "admin";
+  const getAuthConfig = () => ({
+    headers: {
+      Authorization: `Bearer ${getToken()}`
+    }
+  });
 
   const formatMoney = (amount) => {
     return `₦${Number(amount || 0).toLocaleString()}`;
@@ -68,29 +159,59 @@ function App() {
   // LOGIN
   // =========================
 
-  const login = async (e) => {
-    e.preventDefault();
+ const login = async (e) => {
+  e.preventDefault();
 
-    setLoginError("");
-    setLoading(true);
+  setLoginError("");
+  setLoading(true);
 
-    try {
-      const response = await axios.post(`${API_URL}/auth/login`, {
+  try {
+    const res = await axios.post(
+      `${API_URL}/auth/login`,
+      {
         email,
         password
-      });
+      }
+    );
 
-      localStorage.setItem("token", response.data.data.token);
+    const token =
+      res.data?.token ||
+      res.data?.data?.token;
 
-      setLoggedIn(true);
-    } catch (error) {
-      setLoginError(
-        error.response?.data?.message || "Login failed"
-      );
-    } finally {
-      setLoading(false);
+    if (!token) {
+      throw new Error("Login succeeded but no token was returned");
     }
-  };
+
+    localStorage.setItem("token", token);
+
+    // Save the logged-in user
+    const loggedInUser =
+      res.data?.user ||
+      res.data?.data?.user;
+
+    if (loggedInUser) {
+      localStorage.setItem(
+        "user",
+        JSON.stringify(loggedInUser)
+      );
+      setCurrentUser(loggedInUser);
+    }
+
+    setLoggedIn(true);
+    setActivePage("Dashboard");
+
+  } catch (error) {
+    console.error("Login error:", error);
+
+    setLoginError(
+      error.response?.data?.message ||
+      error.message ||
+      "Login failed"
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   // =========================
   // LOGOUT
@@ -98,8 +219,90 @@ function App() {
 
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
+    setCurrentUser(null);
     setLoggedIn(false);
     setActivePage("Dashboard");
+};
+
+     // =========================
+  // REGISTER
+  // =========================
+
+  const registerUser = async (e) => {
+    e.preventDefault();
+
+    setRegisterError("");
+    setLoading(true);
+
+    try {
+      await axios.post(
+        `${API_URL}/auth/register`,
+        {
+          name: registerName,
+          email: registerEmail,
+          password: registerPassword
+        }
+      );
+
+      alert("Account created successfully. You can now login.");
+
+      setRegisterName("");
+      setRegisterEmail("");
+      setRegisterPassword("");
+
+      setEmail(registerEmail);
+      setPassword("");
+      setAuthPage("login");
+
+    } catch (error) {
+      setRegisterError(
+        error.response?.data?.message ||
+        "Unable to create account"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // =========================
+  // FORGOT PASSWORD
+  // =========================
+
+  const resetPassword = async (e) => {
+    e.preventDefault();
+
+    setForgotError("");
+    setLoading(true);
+
+    try {
+      await axios.post(
+        `${API_URL}/auth/forgot-password`,
+        {
+          email: forgotEmail,
+          newPassword: newPassword
+        }
+      );
+
+      alert("Password reset successfully. You can now login.");
+
+      setForgotEmail("");
+      setNewPassword("");
+
+      setEmail(forgotEmail);
+      setPassword("");
+      setAuthPage("login");
+
+    } catch (error) {
+      setForgotError(
+        error.response?.data?.message ||
+        "Unable to reset password"
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   // =========================
@@ -110,7 +313,7 @@ function App() {
     try {
       const response = await axios.get(
         `${API_URL}/employees`,
-        authConfig
+        getAuthConfig()
       );
 
       setEmployees(response.data.data || []);
@@ -132,7 +335,7 @@ function App() {
           position: employeeForm.position,
           salary: Number(employeeForm.salary)
         },
-        authConfig
+        getAuthConfig()
       );
 
       setEmployeeForm({
@@ -167,7 +370,7 @@ function App() {
           position: employeeForm.position,
           salary: Number(employeeForm.salary)
         },
-        authConfig
+        getAuthConfig()
       );
 
       setEmployeeForm({
@@ -215,7 +418,7 @@ function App() {
     try {
       await axios.delete(
         `${API_URL}/employees/${id}`,
-        authConfig
+        getAuthConfig()
       );
 
       await fetchEmployees();
@@ -249,7 +452,7 @@ function App() {
     try {
       const response = await axios.get(
         `${API_URL}/salaries`,
-        authConfig
+        getAuthConfig()
       );
 
       setSalaries(response.data.data || []);
@@ -270,7 +473,7 @@ function App() {
           allowances: Number(salaryForm.allowances || 0),
           effectiveDate: salaryForm.effectiveDate
         },
-        authConfig
+        getAuthConfig()
       );
 
       setSalaryForm({
@@ -303,7 +506,7 @@ function App() {
           allowances: Number(salaryForm.allowances || 0),
           effectiveDate: salaryForm.effectiveDate
         },
-        authConfig
+        getAuthConfig()
       );
 
       setSalaryForm({
@@ -353,7 +556,7 @@ function App() {
     try {
       await axios.delete(
         `${API_URL}/salaries/${id}`,
-        authConfig
+        getAuthConfig()
       );
 
       await fetchSalaries();
@@ -386,7 +589,7 @@ function App() {
     try {
       const response = await axios.get(
         `${API_URL}/deductions`,
-        authConfig
+        getAuthConfig()
       );
 
       setDeductions(response.data.data || []);
@@ -407,7 +610,7 @@ function App() {
           amount: Number(deductionForm.amount),
           description: deductionForm.description
         },
-        authConfig
+        getAuthConfig()
       );
 
       setDeductionForm({
@@ -440,7 +643,7 @@ function App() {
           amount: Number(deductionForm.amount),
           description: deductionForm.description
         },
-        authConfig
+        getAuthConfig()
       );
 
       setDeductionForm({
@@ -486,7 +689,7 @@ function App() {
     try {
       await axios.delete(
         `${API_URL}/deductions/${id}`,
-        authConfig
+        getAuthConfig()
       );
 
       await fetchDeductions();
@@ -519,7 +722,7 @@ function App() {
     try {
       const response = await axios.get(
         `${API_URL}/payrolls`,
-        authConfig
+        getAuthConfig()
       );
 
       setPayrolls(response.data.data || []);
@@ -538,7 +741,7 @@ function App() {
           employeeId: payrollForm.employeeId,
           payPeriod: payrollForm.payPeriod
         },
-        authConfig
+        getAuthConfig() 
       );
 
       await fetchPayrolls();
@@ -554,25 +757,232 @@ function App() {
       alert("Payroll Error: " + message);
     }
   };
-
-  // =========================
+   
+    // =========================
   // LOAD DATA
   // =========================
 
   useEffect(() => {
-    if (loggedIn) {
-      fetchEmployees();
-      fetchSalaries();
-      fetchDeductions();
-      fetchPayrolls();
+  if (loggedIn) {
+    fetchEmployees();
+    fetchSalaries();
+    fetchDeductions();
+    fetchPayrolls();
+
+    if (isAdmin) {
+      fetchUsers();
     }
-  }, [loggedIn]);
+  }
+}, [loggedIn, isAdmin]);;
 
   // =========================
   // LOGIN SCREEN
   // =========================
 
+    // =========================
+  // AUTHENTICATION SCREENS
+  // =========================
+
   if (!loggedIn) {
+
+    // REGISTER SCREEN
+    if (authPage === "register") {
+      return (
+        <div className="login-page">
+          <div className="login-box">
+
+            <div className="login-logo">
+              SP
+            </div>
+
+            <h1>Create Account</h1>
+
+            <p className="login-subtitle">
+              Register for Simple Payroll
+            </p>
+
+            <form onSubmit={registerUser}>
+
+              <label>Name</label>
+
+              <input
+                type="text"
+                placeholder="Enter your name"
+                value={registerName}
+                onChange={(e) =>
+                  setRegisterName(e.target.value)
+                }
+                required
+              />
+
+              <label>Email</label>
+
+              <input
+                type="email"
+                placeholder="Enter your email"
+                value={registerEmail}
+                onChange={(e) =>
+                  setRegisterEmail(e.target.value)
+                }
+                required
+              />
+
+              <label>Password</label>
+
+              <div className="password-wrapper">
+
+  <input
+    type={showRegisterPassword ? "text" : "password"}
+    placeholder="Create a password"
+    value={registerPassword}
+    onChange={(e) => setRegisterPassword(e.target.value)}
+    required
+  />
+
+  <button
+    type="button"
+    className="password-toggle"
+    onClick={() =>
+      setShowRegisterPassword(!showRegisterPassword)
+    }
+    aria-label={
+      showRegisterPassword
+        ? "Hide password"
+        : "Show password"
+    }
+  >
+    {showRegisterPassword ? "🙈" : "👁️"}
+  </button>
+
+</div>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? "Creating account..." : "Create Account"}
+              </button>
+
+              {registerError && (
+                <div className="error-message">
+                  {registerError}
+                </div>
+              )}
+
+            </form>
+
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setRegisterError("");
+                setAuthPage("login");
+              }}
+            >
+              Already have an account? Login
+            </button>
+
+          </div>
+        </div>
+      );
+    }
+
+
+    // FORGOT PASSWORD SCREEN
+    if (authPage === "forgot") {
+      return (
+        <div className="login-page">
+          <div className="login-box">
+
+            <div className="login-logo">
+              SP
+            </div>
+
+            <h1>Reset Password</h1>
+
+            <p className="login-subtitle">
+              Create a new password
+            </p>
+
+            <form onSubmit={resetPassword}>
+
+              <label>Email</label>
+
+              <input
+                type="email"
+                placeholder="Enter your email"
+                value={forgotEmail}
+                onChange={(e) =>
+                  setForgotEmail(e.target.value)
+                }
+                required
+              />
+
+             <label>New Password</label>
+
+<div className="password-wrapper">
+
+  <input
+    type={showResetPassword ? "text" : "password"}
+    placeholder="Create a new password"
+    value={newPassword}
+    onChange={(e) =>
+      setNewPassword(e.target.value)
+    }
+    required
+  />
+
+  <button
+    type="button"
+    className="password-toggle"
+    onClick={() =>
+      setShowResetPassword(!showResetPassword)
+    }
+    aria-label={
+      showResetPassword
+        ? "Hide password"
+        : "Show password"
+    }
+  >
+    {showResetPassword ? "🙈" : "👁️"}
+  </button>
+
+</div>
+
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? "Resetting..." : "Reset Password"}
+              </button>
+
+              {forgotError && (
+                <div className="error-message">
+                  {forgotError}
+                </div>
+              )}
+
+            </form>
+
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setForgotError("");
+                setAuthPage("login");
+              }}
+            >
+              Back to Login
+            </button>
+
+          </div>
+        </div>
+      );
+    }
+
+
+    // LOGIN SCREEN
     return (
       <div className="login-page">
         <div className="login-box">
@@ -584,7 +994,7 @@ function App() {
           <h1>Simple Payroll</h1>
 
           <p className="login-subtitle">
-            Admin Login
+            Sign in to your account
           </p>
 
           <form onSubmit={login}>
@@ -599,15 +1009,34 @@ function App() {
               required
             />
 
-            <label>Password</label>
+           <label>Password</label>
 
-            <input
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+<div className="password-wrapper">
+
+  <input
+    type={showLoginPassword ? "text" : "password"}
+    placeholder="Enter your password"
+    value={password}
+    onChange={(e) => setPassword(e.target.value)}
+    required
+  />
+
+  <button
+    type="button"
+    className="password-toggle"
+    onClick={() =>
+      setShowLoginPassword(!showLoginPassword)
+    }
+    aria-label={
+      showLoginPassword
+        ? "Hide password"
+        : "Show password"
+    }
+  >
+    {showLoginPassword ? "🙈" : "👁️"}
+  </button>
+
+</div>
 
             <button
               className="primary-button"
@@ -624,6 +1053,32 @@ function App() {
             )}
 
           </form>
+
+          <div className="auth-links">
+
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setLoginError("");
+                setAuthPage("register");
+              }}
+            >
+              Create Account
+            </button>
+
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setLoginError("");
+                setAuthPage("forgot");
+              }}
+            >
+              Forgot Password?
+            </button>
+
+          </div>
 
         </div>
       </div>
@@ -737,6 +1192,24 @@ function App() {
               <span>▤</span>
               Payroll
             </button>
+
+            {isAdmin && (
+           <button
+          type="button"
+           className={
+           activePage === "Users"
+           ? "nav-button active"
+           : "nav-button"
+          }
+            onClick={() => {
+          setActivePage("Users");
+          fetchUsers();
+           }}
+         >
+         <span>👤</span>
+         Users
+        </button>
+         )}
 
           </nav>
 
@@ -1823,7 +2296,140 @@ function App() {
 
             </>
           )}
+                   {/* USERS */}
 
+{activePage === "Users" && isAdmin && (
+  <>
+
+    <div className="page-header">
+
+      <div>
+        <h2>User Management</h2>
+
+        <p>
+          Manage application users and access roles.
+        </p>
+      </div>
+
+    </div>
+
+    <div className="table-card">
+
+      <div className="table-header">
+
+        <h3>
+          System Users
+        </h3>
+
+        <span>
+          {users.length} users
+        </span>
+
+      </div>
+
+      {users.length === 0 ? (
+        <p className="empty">
+          No users found.
+        </p>
+      ) : (
+        <div className="table-container">
+
+          <table>
+
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+
+              {users.map((user) => (
+
+                <tr key={user._id}>
+
+                  <td>
+                    <strong>
+                      {user.name}
+                    </strong>
+                  </td>
+
+                  <td>
+                    {user.email}
+                  </td>
+
+                  <td>
+                    <span
+                      className={
+                        user.role === "admin"
+                          ? "role-badge admin"
+                          : "role-badge employee"
+                      }
+                    >
+                      {user.role}
+                    </span>
+                  </td>
+
+                  <td>
+
+                    {user._id === (currentUser?._id || currentUser?.id) ? (
+
+                      <span className="current-user">
+                        Current account
+                      </span>
+
+                    ) : user.role === "admin" ? (
+
+                      <button
+                        type="button"
+                        className="role-button employee-role"
+                        onClick={() =>
+                          changeUserRole(
+                            user._id,
+                            "employee"
+                          )
+                        }
+                      >
+                        Make Employee
+                      </button>
+
+                    ) : (
+
+                      <button
+                        type="button"
+                        className="role-button admin-role"
+                        onClick={() =>
+                          changeUserRole(
+                            user._id,
+                            "admin"
+                          )
+                        }
+                      >
+                        Make Admin
+                      </button>
+
+                    )}
+
+                  </td>
+
+                </tr>
+
+              ))}
+
+            </tbody>
+
+          </table>
+
+        </div>
+      )}
+
+    </div>
+
+  </>
+)}
         </main>
 
       </div>
